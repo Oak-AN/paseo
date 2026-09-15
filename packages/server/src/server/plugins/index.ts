@@ -145,11 +145,11 @@ export class PluginService {
     });
   }
 
-  listPlugins(): PluginListItem[] {
+  async listPlugins(): Promise<PluginListItem[]> {
     const config = this.configStore.get();
     const running = new Set(this.runtime.catalog().map((plugin) => plugin.id));
-    return Object.entries(config.plugins ?? {})
-      .map(([id, source]) => {
+    const plugins = await Promise.all(
+      Object.entries(config.plugins ?? {}).map(async ([id, source]) => {
         const enabled = source.enabled !== false;
         const item: PluginListItem = {
           id,
@@ -161,6 +161,8 @@ export class PluginService {
             running: running.has(id),
           }),
         };
+        const manifest = await readPluginManifest(path.resolve(source.path)).catch(() => null);
+        if (manifest?.description) item.description = manifest.description;
         const managed = this.managedSources?.get(id);
         if (managed) {
           item.source = "git";
@@ -172,8 +174,9 @@ export class PluginService {
         const error = this.errors.get(id);
         if (error && item.status === "failed") item.error = error;
         return item;
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+      }),
+    );
+    return plugins.sort((left, right) => left.id.localeCompare(right.id));
   }
 
   getLogs(pluginId: string): PluginLogEntry[] {
@@ -203,7 +206,7 @@ export class PluginService {
       this.configStore.patch({ plugins: sources });
       if (this.canPublish(pluginId)) await this.startConfigured(pluginId);
       this.notify(pluginId);
-      const installed = this.requireItem(pluginId);
+      const installed = await this.requireItem(pluginId);
       if (installed.status === "failed") {
         throw new Error(installed.error ?? `Plugin failed to start: ${pluginId}`);
       }
@@ -263,7 +266,7 @@ export class PluginService {
       this.configStore.patch({ plugins: sources });
       if (this.canPublish(pluginId)) await this.startConfigured(pluginId);
       this.notify(pluginId);
-      const installed = this.requireItem(pluginId);
+      const installed = await this.requireItem(pluginId);
       if (installed.status === "failed") {
         throw new Error(installed.error ?? `Plugin failed to start: ${pluginId}`);
       }
@@ -634,8 +637,8 @@ export class PluginService {
     });
   }
 
-  private requireItem(pluginId: string): PluginListItem {
-    const item = this.listPlugins().find((plugin) => plugin.id === pluginId);
+  private async requireItem(pluginId: string): Promise<PluginListItem> {
+    const item = (await this.listPlugins()).find((plugin) => plugin.id === pluginId);
     if (!item) throw new Error(`Plugin is not configured: ${pluginId}`);
     return item;
   }

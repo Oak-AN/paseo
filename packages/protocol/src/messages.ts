@@ -6529,6 +6529,7 @@ export type PluginStatus = z.infer<typeof PluginStatusSchema>;
 
 export const PluginListItemSchema = z.object({
   id: PluginIdSchema,
+  description: z.string().optional(),
   path: z.string(),
   enabled: z.boolean(),
   status: PluginStatusSchema,

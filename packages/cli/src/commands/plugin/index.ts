@@ -1,14 +1,10 @@
 import { Command } from "commander";
-import path from "node:path";
 import type {
   PluginListItem,
   PluginLogEntry,
   PluginSourceUpdateItem,
 } from "@getpaseo/protocol/messages";
-import {
-  formatPluginSourceReference,
-  parsePluginSourceReference,
-} from "@getpaseo/protocol/plugin-source-reference";
+import { formatPluginSourceReference } from "@getpaseo/protocol/plugin-source-reference";
 import type { CommandOptions, ListResult, OutputSchema, SingleResult } from "../../output/index.js";
 import { withOutput } from "../../output/index.js";
 import { addJsonAndDaemonHostOptions, addJsonOption } from "../../utils/command-options.js";
@@ -109,7 +105,7 @@ export async function runPluginLogsCommand(
   return { type: "list", data, schema: pluginLogsSchema };
 }
 
-async function install(
+export async function runPluginInstallCommand(
   source: string,
   options: PluginOptions,
   _command: Command,
@@ -117,29 +113,14 @@ async function install(
   process.stderr.write(
     "Trusting plugin code: server code and Git build commands run unsandboxed on the daemon host; client code runs inside Paseo. Dependencies and future updates are part of the codebase you trust.\n",
   );
-  const isExplicitPath =
-    path.isAbsolute(source) ||
-    source === "." ||
-    source === ".." ||
-    source.startsWith("./") ||
-    source.startsWith("../") ||
-    source.startsWith(".\\") ||
-    source.startsWith("..\\");
-  const hasPluginPathSuffix = parsePluginSourceReference(source).pluginPath !== undefined;
-  const canUseLegacyDirectoryInstall =
-    isExplicitPath && !hasPluginPathSuffix && !options.ref && !options.path;
   const sourceReference = formatPluginSourceReference(source, options.path);
-  const data = canUseLegacyDirectoryInstall
-    ? await withPluginManagementClient(options.daemonTarget, (client) =>
-        client.installDirectoryPlugin(source, options.id),
-      )
-    : await withPluginSourceClient(options.daemonTarget, (client) =>
-        client.installPluginSource({
-          source: sourceReference,
-          ...(options.id ? { id: options.id } : {}),
-          ...(options.ref ? { ref: options.ref } : {}),
-        }),
-      );
+  const data = await withPluginSourceClient(options.daemonTarget, (client) =>
+    client.installPluginSource({
+      source: sourceReference,
+      ...(options.id ? { id: options.id } : {}),
+      ...(options.ref ? { ref: options.ref } : {}),
+    }),
+  );
   return { type: "single", data, schema: pluginSchema };
 }
 
@@ -209,7 +190,7 @@ export function createPluginCommand(): Command {
       .option("--id <id>", "Runtime plugin ID (defaults to paseo-plugin.json id)")
       .option("--ref <ref>", "Git branch, tag, or commit")
       .option("--path <path>", "Legacy form of the :plugin/path source suffix"),
-  ).action(withOutput(install));
+  ).action(withOutput(runPluginInstallCommand));
   addJsonAndDaemonHostOptions(
     plugin
       .command("update")

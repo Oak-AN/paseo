@@ -16,6 +16,7 @@ void testI18n;
 const runtime = vi.hoisted(() => ({
   connected: true,
   supported: true,
+  sourceSupported: true,
   logsSupported: true,
   client: null as DaemonClient | null,
 }));
@@ -26,8 +27,11 @@ vi.mock("@/runtime/host-runtime", () => ({
 }));
 
 vi.mock("@/runtime/host-features", () => ({
-  useHostFeature: (_serverId: string, feature: string) =>
-    feature === "pluginLogs" ? runtime.logsSupported : runtime.supported,
+  useHostFeature: (_serverId: string, feature: string) => {
+    if (feature === "pluginLogs") return runtime.logsSupported;
+    if (feature === "pluginGitManagement") return runtime.sourceSupported;
+    return runtime.supported;
+  },
 }));
 
 vi.mock("@/components/adaptive-modal-sheet", async () => {
@@ -96,10 +100,16 @@ function never<T>(): Promise<T> {
 function plugin(enabled = true): PluginListItem {
   return {
     id: "example",
+    description: "Reviews changes before merge",
     path: "/plugins/example",
     enabled,
     status: enabled ? "running" : "disabled",
   };
+}
+
+async function selectPluginAction(action: string): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "Actions for example" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: action }));
 }
 
 function createClient() {
@@ -112,8 +122,7 @@ function createClient() {
     getDaemonConfig: vi.fn(async () => ({ config: { pluginsEnabled: true } })),
     patchDaemonConfig: vi.fn(async () => ({ config: { pluginsEnabled: true } })),
     listPlugins: vi.fn(async (): Promise<PluginListItem[]> => []),
-    inspectDirectoryPlugin: vi.fn(async () => ({ id: "example" })),
-    installDirectoryPlugin: vi.fn(async () => plugin()),
+    installPluginSource: vi.fn(async () => plugin()),
     reloadPlugin: vi.fn(async () => plugin()),
     enablePlugin: vi.fn(async () => plugin()),
     disablePlugin: vi.fn(async () => plugin(false)),
@@ -145,6 +154,7 @@ describe("HostPluginsPage", () => {
     vi.stubGlobal("React", React);
     runtime.connected = true;
     runtime.supported = true;
+    runtime.sourceSupported = true;
     runtime.logsSupported = true;
     runtime.client = null;
     vi.stubGlobal(
@@ -180,36 +190,112 @@ describe("HostPluginsPage", () => {
   });
 
   it.each([
-    ["reloadPlugin", "Reload", "Reloading…", true],
-    ["disablePlugin", "Disable", "Disabling…", true],
-    ["enablePlugin", "Enable", "Enabling…", false],
-    ["removePlugin", "Remove", "Removing…", true],
-  ] as const)("renders %s pending on its plugin row", async (method, trigger, pending, enabled) => {
+    ["reloadPlugin", "Reload"],
+    ["removePlugin", "Remove"],
+  ] as const)("runs %s from the plugin actions menu", async (method, action) => {
     const client = createClient();
-    client.listPlugins.mockResolvedValue([plugin(enabled)]);
-    client[method].mockImplementation(() => never<never>());
+    client.listPlugins.mockResolvedValue([plugin()]);
     renderPage(client);
 
-    fireEvent.click(await screen.findByRole("button", { name: trigger }));
+    await selectPluginAction(action);
 
-    const pendingControl = await screen.findByRole("button", { name: pending });
-    expect(pendingControl.getAttribute("aria-disabled")).toBe("true");
-    expect(client[method]).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(client[method]).toHaveBeenCalledTimes(1));
+  });
+
+  it("disables the plugin switch and menu while an action is pending", async () => {
+    const client = createClient();
+    client.listPlugins.mockResolvedValue([plugin()]);
+    client.reloadPlugin.mockImplementation(() => never<never>());
+    renderPage(client);
+
+    await selectPluginAction("Reload");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("switch", { name: "example: Disable" }).getAttribute("aria-disabled"),
+      ).toBe("true");
+      expect(
+        screen.getByRole("button", { name: "Actions for example" }).getAttribute("aria-disabled"),
+      ).toBe("true");
+    });
+  });
+
+  it.each([
+    [true, "disablePlugin"],
+    [false, "enablePlugin"],
+  ] as const)("toggles an enabled=%s plugin with its switch", async (enabled, method) => {
+    const client = createClient();
+    client.listPlugins.mockResolvedValue([plugin(enabled)]);
+    renderPage(client);
+
+    fireEvent.click(
+      await screen.findByRole("switch", { name: `example: ${enabled ? "Disable" : "Enable"}` }),
+    );
+
+    await waitFor(() => expect(client[method]).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the manifest description and status without exposing the source path", async () => {
+    const client = createClient();
+    client.listPlugins.mockResolvedValue([
+      plugin(),
+      {
+        id: "disabled-example",
+        description: "Available when needed",
+        path: "/plugins/disabled-example",
+        enabled: false,
+        status: "disabled",
+      },
+      {
+        id: "failed-example",
+        description: "Needs attention",
+        path: "/plugins/failed-example",
+        enabled: true,
+        status: "failed",
+        error: "Plugin failed to start",
+      },
+    ]);
+    renderPage(client);
+
+    expect(await screen.findByText("Reviews changes before merge")).toBeDefined();
+    expect(screen.getByText("Available when needed")).toBeDefined();
+    expect(screen.getByText("Needs attention")).toBeDefined();
+    expect(screen.getByText("running")).toBeDefined();
+    expect(screen.getByText("disabled")).toBeDefined();
+    expect(screen.getByText("failed")).toBeDefined();
+    expect(screen.getByText("Plugin failed to start")).toBeDefined();
+    expect(screen.queryByText("/plugins/example")).toBeNull();
+    expect(screen.queryByText("/plugins/disabled-example")).toBeNull();
+    expect(screen.queryByText("/plugins/failed-example")).toBeNull();
   });
 
   it("renders install pending through the real form and mutation", async () => {
     const client = createClient();
-    client.installDirectoryPlugin.mockImplementation(() => never<never>());
+    client.installPluginSource.mockImplementation(() => never<never>());
     renderPage(client);
 
-    fireEvent.change(screen.getByLabelText("Plugin directory"), {
+    expect(screen.getByPlaceholderText("Directory, Git URL, or npm package")).toBeDefined();
+    fireEvent.change(screen.getByLabelText("Plugin source"), {
       target: { value: "/plugins/example" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Install directory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Install plugin" }));
 
     const pendingControl = await screen.findByRole("button", { name: "Installing…" });
     expect(pendingControl.getAttribute("aria-disabled")).toBe("true");
-    expect(client.installDirectoryPlugin).toHaveBeenCalledWith("/plugins/example", undefined);
+    expect(client.installPluginSource).toHaveBeenCalledWith({ source: "/plugins/example" });
+    expect(screen.queryByLabelText("Plugin installation ID")).toBeNull();
+    expect(screen.getByRole("link", { name: "Docs" })).toBeDefined();
+  });
+
+  it("keeps management available while source installation requires a host update", async () => {
+    runtime.sourceSupported = false;
+    const client = createClient();
+    client.listPlugins.mockResolvedValue([plugin()]);
+    renderPage(client);
+
+    expect(await screen.findByRole("button", { name: "Actions for example" })).toBeDefined();
+    expect(screen.getByText("Update this host to install plugins")).toBeDefined();
+    expect(screen.queryByLabelText("Plugin source")).toBeNull();
   });
 
   it("hides the logs action when the host does not advertise support", async () => {
@@ -219,7 +305,8 @@ describe("HostPluginsPage", () => {
     renderPage(client);
 
     await screen.findByText("example");
-    expect(screen.queryByRole("button", { name: "Logs" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for example" }));
+    expect(screen.queryByRole("menuitem", { name: "Logs" })).toBeNull();
   });
 
   it("opens readable stdout and stderr logs and refreshes them", async () => {
@@ -241,7 +328,7 @@ describe("HostPluginsPage", () => {
     ]);
     renderPage(client);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Logs" }));
+    await selectPluginAction("Logs");
 
     expect(await screen.findByRole("dialog")).toBeDefined();
     expect(screen.getByText("Logs: example")).toBeDefined();
@@ -260,7 +347,7 @@ describe("HostPluginsPage", () => {
     client.getPluginLogs.mockRejectedValueOnce(new Error("logs exploded"));
     renderPage(client);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Logs" }));
+    await selectPluginAction("Logs");
     expect(await screen.findByText("Unable to load plugin logs")).toBeDefined();
     expect(screen.getByText("logs exploded")).toBeDefined();
 

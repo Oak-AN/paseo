@@ -55,7 +55,7 @@ export async function withPluginSourceClient<T>(
   return withPluginClient(
     target,
     "pluginGitManagement",
-    "Update the host to install and update Git plugins.",
+    "Update the host to install or update plugins.",
     run,
   );
 }

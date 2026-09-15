@@ -28,15 +28,15 @@ const getPluginLogs = vi.fn(async () => [
     message: "ready",
   },
 ]);
-const installDirectoryPlugin = vi.fn(async () => ({
+const installPluginSource = vi.fn(async () => ({
   id: "trusted-plugin",
   path: "/plugins/trusted-plugin",
   enabled: true,
   status: "running" as const,
 }));
-const installPluginSource = vi.fn(async () => ({
-  id: "trusted-plugin",
-  path: "/plugins/trusted-plugin",
+const installDirectoryPlugin = vi.fn(async () => ({
+  id: "legacy-plugin",
+  path: "/plugins/legacy-plugin",
   enabled: true,
   status: "running" as const,
 }));
@@ -59,7 +59,12 @@ vi.mock("../../utils/client.js", () => ({
 }));
 
 import { render } from "../../output/index.js";
-import { createPluginCommand, runPluginListCommand, runPluginLogsCommand } from "./index.js";
+import {
+  createPluginCommand,
+  runPluginInstallCommand,
+  runPluginListCommand,
+  runPluginLogsCommand,
+} from "./index.js";
 
 describe("plugin management commands", () => {
   beforeEach(() => {
@@ -146,7 +151,7 @@ describe("plugin management commands", () => {
   });
 
   it("prints the trust acknowledgement before installing", async () => {
-    features.pluginManagement = true;
+    features.pluginGitManagement = true;
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const command = createPluginCommand();
 
@@ -155,7 +160,22 @@ describe("plugin management commands", () => {
     expect(stderr).toHaveBeenCalledWith(
       expect.stringContaining("Git build commands run unsandboxed on the daemon host"),
     );
-    expect(installDirectoryPlugin).toHaveBeenCalledWith("/plugins/trusted-plugin", undefined);
+    expect(installPluginSource).toHaveBeenCalledWith({ source: "/plugins/trusted-plugin" });
+    stderr.mockRestore();
+  });
+
+  it("requires source support for directory installs without using the legacy RPC", async () => {
+    features.pluginManagement = true;
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await expect(
+      runPluginInstallCommand("/plugins/trusted-plugin", { daemonTarget }, {} as never),
+    ).rejects.toMatchObject({
+      code: "DAEMON_UPDATE_REQUIRED",
+      message: "Update the host to install or update plugins.",
+    });
+    expect(installPluginSource).not.toHaveBeenCalled();
+    expect(installDirectoryPlugin).not.toHaveBeenCalled();
     stderr.mockRestore();
   });
 
@@ -184,7 +204,6 @@ describe("plugin management commands", () => {
     expect(installPluginSource).toHaveBeenCalledWith({
       source: "/plugins/monorepo:plugins/review",
     });
-    expect(installDirectoryPlugin).not.toHaveBeenCalled();
     stderr.mockRestore();
   });
 });

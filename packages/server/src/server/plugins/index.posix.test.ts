@@ -309,7 +309,7 @@ describe("PluginService", () => {
     await writeFile(path.join(directory, "index.server.ts"), "export default broken syntax !!!");
     await expect(service.reloadPlugin("work-plugin")).rejects.toThrow();
     expect(service.catalog()).toEqual([]);
-    expect(service.listPlugins()).toEqual([
+    expect(await service.listPlugins()).toEqual([
       expect.objectContaining({ id: "work-plugin", status: "failed", error: expect.any(String) }),
     ]);
 
@@ -320,6 +320,39 @@ describe("PluginService", () => {
     await expect(service.reloadPlugin("work-plugin")).resolves.toMatchObject({ status: "running" });
     await service.stopAllPlugins();
   }, 20_000);
+
+  it("lists manifest descriptions for running and disabled plugins without hiding malformed entries", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-home-"));
+    roots.push(home);
+    const running = await createPlugin("running", "export default () => () => {};");
+    const disabled = await createPlugin("disabled", "export default () => () => {};");
+    const malformed = await createPlugin("malformed", "export default () => () => {};");
+    await writeFile(
+      path.join(running, "paseo-plugin.json"),
+      JSON.stringify({ id: "running", description: "Runs checks" }),
+    );
+    await writeFile(
+      path.join(disabled, "paseo-plugin.json"),
+      JSON.stringify({ id: "disabled", description: "Waits until enabled" }),
+    );
+    await writeFile(path.join(malformed, "paseo-plugin.json"), "{");
+    const service = createService(home, {
+      running: { source: "directory", path: running },
+      disabled: { source: "directory", path: disabled, enabled: false },
+      malformed: { source: "directory", path: malformed },
+    });
+
+    await service.start();
+
+    expect(
+      (await service.listPlugins()).map(({ id, description }) => ({ id, description })),
+    ).toEqual([
+      { id: "disabled", description: "Waits until enabled" },
+      { id: "malformed", description: undefined },
+      { id: "running", description: "Runs checks" },
+    ]);
+    await service.stopAllPlugins();
+  });
 
   it("prefers an existing directory and installs its selected plugin subdirectory", async () => {
     const home = await mkdtemp(path.join(tmpdir(), "paseo-plugin-home-"));
@@ -396,7 +429,7 @@ describe("PluginService", () => {
     expect(service.catalog()).toEqual([
       expect.objectContaining({ id: "git-update", clientBundle: expect.any(String) }),
     ]);
-    expect(service.listPlugins()).toEqual([
+    expect(await service.listPlugins()).toEqual([
       expect.objectContaining({
         id: "git-update",
         path: installedPath,
@@ -545,7 +578,7 @@ describe("PluginService", () => {
       managedSources,
     });
     await service.start();
-    expect(service.listPlugins()).toEqual([
+    expect(await service.listPlugins()).toEqual([
       expect.objectContaining({ id: "failed-update", status: "failed" }),
     ]);
 
@@ -561,7 +594,7 @@ describe("PluginService", () => {
     ]);
     expect(starts).toHaveLength(2);
     expect(starts[1]).not.toBe(initial.directory);
-    expect(service.listPlugins()).toEqual([
+    expect(await service.listPlugins()).toEqual([
       expect.objectContaining({ id: "failed-update", path: starts[1], status: "running" }),
     ]);
     await service.stopAllPlugins();
@@ -592,7 +625,7 @@ export default function contribute(plugin: unknown) {
     expect(await readFile(cleanupFile, "utf8")).toBe("cleaned");
     await service.removePlugin("cleanup-plugin");
 
-    expect(service.listPlugins()).toEqual([]);
+    expect(await service.listPlugins()).toEqual([]);
     await expect(stat(directory)).resolves.toMatchObject({});
     await service.stopAllPlugins();
   }, 20_000);
@@ -624,7 +657,7 @@ export default function contribute(plugin: unknown) {
     );
     store.patch({ pluginsEnabled: true });
     await service.reloadPlugin("first");
-    expect(service.listPlugins().map(({ id, status }) => ({ id, status }))).toEqual([
+    expect((await service.listPlugins()).map(({ id, status }) => ({ id, status }))).toEqual([
       { id: "first", status: "running" },
       { id: "second", status: "running" },
     ]);
@@ -651,7 +684,7 @@ export default function contribute(plugin: unknown) {
     await service.stopAllPlugins();
 
     expect(service.catalog()).toEqual([]);
-    expect(service.listPlugins()).toEqual([
+    expect(await service.listPlugins()).toEqual([
       { id: "slow", path: "/plugins/slow", enabled: true, status: "disabled" },
     ]);
   });
@@ -766,7 +799,7 @@ export default function contribute(plugin: unknown) {
     await expect(service.installDirectory({ path: startupFailure })).rejects.toThrow(
       "startup exploded",
     );
-    expect(service.listPlugins()).toEqual([
+    expect(await service.listPlugins()).toEqual([
       expect.objectContaining({
         id: "legacy-plugin",
         status: "failed",

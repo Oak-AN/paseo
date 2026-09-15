@@ -27,6 +27,10 @@ import { settingsStyles } from "@/styles/settings";
 export { SettingsGroup } from "./headings/settings-group";
 export { SettingsSection } from "./headings/settings-section";
 
+interface AppSettingsRowProps extends SettingsRowProps {
+  labelAccessory?: ReactNode;
+}
+
 export function SettingsCard({ children, testID }: { children: ReactNode; testID?: string }) {
   return (
     <View style={settingsStyles.card} testID={testID}>
@@ -42,13 +46,27 @@ export function SettingsCard({ children, testID }: { children: ReactNode; testID
   );
 }
 
-export function SettingsRow({ label, hint, error, children, testID }: SettingsRowProps) {
+export function SettingsRow({
+  label,
+  labelAccessory,
+  hint,
+  error,
+  children,
+  testID,
+}: AppSettingsRowProps) {
   const compact = useIsCompactFormFactor();
   const rowStyle = useMemo(() => [settingsStyles.row, compact && styles.compactRow], [compact]);
   return (
     <View style={rowStyle} testID={testID}>
       <View style={styles.label}>
-        <Text style={settingsStyles.rowTitle}>{label}</Text>
+        {labelAccessory ? (
+          <View style={styles.labelRow}>
+            <Text style={[settingsStyles.rowTitle, styles.accessoryLabel]}>{label}</Text>
+            {labelAccessory}
+          </View>
+        ) : (
+          <Text style={settingsStyles.rowTitle}>{label}</Text>
+        )}
         {hint ? <Text style={settingsStyles.rowHint}>{hint}</Text> : null}
         {error ? (
           <Text accessibilityRole="alert" style={settingsStyles.rowError}>
@@ -176,6 +194,13 @@ export function SettingsAction({ actionLabel, onPress, disabled, ...row }: Setti
 const styles = StyleSheet.create((theme) => ({
   compactRow: { flexWrap: "wrap", gap: theme.spacing[3] },
   label: { flexGrow: 1, flexShrink: 1, flexBasis: 160, marginRight: theme.spacing[3] },
+  labelRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing[2],
+  },
+  accessoryLabel: { flexShrink: 1, minWidth: 0 },
   control: { flexShrink: 1, maxWidth: "100%" },
   value: { color: theme.colors.foreground, fontSize: theme.fontSize.base },
   input: { minWidth: 180 },

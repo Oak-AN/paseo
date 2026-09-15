@@ -122,6 +122,20 @@ paseo plugin install /absolute/path/to/workspace-plugin
 paseo plugin ls
 ```
 
+Or install the directory from the app:
+
+1. Open **Settings → Plugins** on the target host.
+2. Paste `/absolute/path/to/workspace-plugin` into **Plugin source**.
+3. Select **Install plugin**. The app uses the plugin ID from `paseo-plugin.json`.
+
+The source field also accepts Git repositories and plugin subdirectories. See
+[Plugin sources](/docs/plugins/v0.8/reference#plugin-sources) for the accepted syntax and resolution
+rules. If the form asks you to update the host, update that host before installing; the existing
+management actions remain available.
+
+Each installed plugin row shows its status and description. Use its switch to enable or disable it,
+and open its three-dot menu for settings, logs, reload, and removal.
+
 `paseo plugin ls` should report the plugin as `running`. Open Paseo, choose **Greeting** in the
 sidebar, and press **Create greeting**. The message comes back from the daemon subprocess through
 the RPC.
@@ -252,7 +266,8 @@ console.log("Refreshing issues");
 console.error("Issue refresh failed", error);
 ```
 
-Read the recent output from **Settings → Plugins → Logs** or the CLI:
+Read the recent output by opening the plugin's three-dot menu under **Settings → Plugins** and
+selecting **Logs**, or use the CLI:
 
 ```bash
 paseo plugin logs workspace-plugin

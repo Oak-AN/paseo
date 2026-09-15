@@ -98,6 +98,22 @@ describe("plugin protocol compatibility", () => {
           requestId: "request-1",
           plugin: {
             id: "example-work",
+            description: "Reviews changes before merge",
+            path: "/plugins/example",
+            enabled: true,
+            status: "running",
+          },
+        },
+      }).type,
+    ).toBe("plugin.directory.install.response");
+
+    expect(
+      SessionOutboundMessageSchema.parse({
+        type: "plugin.directory.install.response",
+        payload: {
+          requestId: "request-old-shape",
+          plugin: {
+            id: "example-work",
             path: "/plugins/example",
             enabled: true,
             status: "running",

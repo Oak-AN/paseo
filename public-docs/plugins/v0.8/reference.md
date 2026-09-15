@@ -42,11 +42,22 @@ my-plugin/
   tsconfig.json
 ```
 
-The required root manifest is `paseo-plugin.json`. It contains the default plugin ID and supported Paseo versions:
+The required root manifest is `paseo-plugin.json`:
 
 ```json
-{ "id": "my-plugin", "requirements": { "paseo": ">=0.8.0" } }
+{
+  "id": "my-plugin",
+  "description": "Reviews changes before merge",
+  "requirements": { "paseo": ">=0.8.0" }
+}
 ```
+
+| Field          | Required | Behavior                                                               |
+| -------------- | -------- | ---------------------------------------------------------------------- |
+| `id`           | Yes      | Default installation ID.                                               |
+| `description`  | No       | Non-empty summary shown below the plugin ID in **Settings → Plugins**. |
+| `requirements` | No       | Supported Paseo versions, described below.                             |
+| `build`        | No       | Preparation commands, described in the CLI reference.                  |
 
 ### Requirements
 
@@ -1873,6 +1884,52 @@ remove Command Center items and clear the installation's query state. An already
 remains as unavailable until its matching contribution returns or the user closes it. Panel render
 failures stay inside the plugin error boundary.
 
+## Plugin sources
+
+Paste one of these source identifiers into **Settings → Plugins**, or pass it to
+`paseo plugin install`. `paseo plugin add <source>` and `paseo plugin install <source>` are aliases.
+Absolute host paths are recommended because relative paths resolve against the daemon's working
+directory. The app does not expand `~`; your shell may expand it before the CLI runs.
+
+| Source                     | Accepted form                                                   | Example                                   |
+| -------------------------- | --------------------------------------------------------------- | ----------------------------------------- |
+| Host directory             | Absolute or relative path on the daemon host                    | `/srv/paseo/plugins/review`               |
+| GitHub repository          | `owner/repository`                                              | `acme/paseo-review`                       |
+| Git URL                    | `https://`, `http://`, `ssh://`, `git://`, or `file://` URL     | `https://git.example.com/acme/review.git` |
+| SCP-style Git repository   | `user@host:path`                                                | `git@git.example.com:acme/review.git`     |
+| Plugin below a source root | Add `:relative/plugin/path` to a directory or repository source | `acme/monorepo:plugins/review`            |
+
+Paseo resolves an identifier in this order:
+
+1. If the complete identifier names an existing daemon-host directory, Paseo uses that directory.
+   This check comes first, so an existing literal directory containing `:` wins.
+2. Otherwise, Paseo recognizes a final `:relative/plugin/path` only when the suffix is relative and
+   contains no empty, `.` or `..` segments. A lone `.` selects the source root. Both `/` and `\`
+   separate suffix segments; use `/` for paths that must be portable across hosts because `\` also
+   follows the daemon host's path semantics. A suffix that does not match these rules remains part
+   of the source. URL ports and the separator in an SCP-style repository also remain part of the Git
+   source. A recognized suffix selects that subdirectory after the source is acquired.
+3. If the remaining source names an existing daemon-host directory, Paseo installs from it.
+4. Exact `owner/repository` syntax is expanded to a GitHub HTTPS URL.
+5. The listed Git URL and SCP-style forms are cloned. Any other source is rejected.
+
+Directory lookup happens on the daemon host; neither the app nor CLI checks the caller's filesystem.
+The app always uses the ID from `paseo-plugin.json`. The CLI also accepts `--id <runtime-id>` to
+override it:
+
+```bash
+paseo plugin install /srv/paseo/plugins/review
+paseo plugin install acme/paseo-review
+paseo plugin install https://git.example.com:8443/acme/monorepo.git:plugins/review --ref main
+paseo plugin install git@git.example.com:acme/review.git
+paseo plugin install file:///srv/repos/monorepo:plugins/review
+paseo plugin install acme/paseo-review --id review-staging
+```
+
+`--ref` applies only to Git sources and accepts a branch, tag, or commit. Without it, Paseo tracks
+the remote's default branch. An explicit branch remains tracked; tags and commits are pinned. The
+legacy `--path relative/plugin/path` option is equivalent to the `:relative/plugin/path` suffix.
+
 ## CLI reference
 
 ```bash
@@ -1901,10 +1958,6 @@ never deletes a directory source; it deletes the managed checkout for a Git sour
 
 > **Trust every plugin you add.** `paseo plugin add` and `paseo plugin install` mean “I trust this codebase.” Server code and Git preparation commands run unsandboxed with the daemon user's access on the daemon host; client contributions run inside Paseo. Dependencies and future updates are part of that decision. With the global `--host` option, commands run on the remote daemon host.
 
-An existing directory wins over `owner/repository` GitHub shorthand. Append `:relative/path` when
-the plugin lives below the repository root. Omit `--ref` to track the default branch. Explicit
-branches track updates; tags and commits stay pinned.
-
 Most plugins should omit `build`. Use it only when the staged checkout must install a dependency
 that Paseo does not provide, generate source or assets, or perform another required preparation
 step:
@@ -1927,7 +1980,8 @@ compilation, activation, or replacement. A failing command reports its output, d
 candidate, and leaves the installed/running version intact. The daemon log records each command and
 output; with the global `--host` option, execution is on that daemon host.
 
-Run `npm run typecheck` before install or reload. Manage plugin source entries with the CLI or Settings.
+Run `npm run typecheck` before install or reload. Manage plugin source entries with the CLI or
+Settings; see [Plugin sources](#plugin-sources) for install syntax.
 
 The daemon-wide **Enable plugins** switch lives under **Settings → Plugins**. A configured plugin remains `disabled` until that switch and the plugin's own enabled state are both on.
 

@@ -77,7 +77,7 @@ it("marks pre-0.8 plugins failed on startup and recovers after migration and rel
   const root = await directory();
   await writePlugin(root);
   const { service } = await host("0.8.0", root);
-  expect(service.listPlugins()).toEqual([
+  expect(await service.listPlugins()).toEqual([
     expect.objectContaining({
       status: "failed",
       error: expect.stringContaining("https://paseo.sh/docs/plugins/v0.8/migration"),
@@ -121,7 +121,7 @@ it("rejects Git install and update before build commands, preserving the running
   ]);
   await commit();
   await expect(service.updateSources("example")).rejects.toThrow("requires Paseo >=0.9.0");
-  expect(service.listPlugins()).toEqual([installed]);
+  expect(await service.listPlugins()).toEqual([installed]);
   expect(service.catalog()).toHaveLength(1);
   expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);
   await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
@@ -129,5 +129,5 @@ it("rejects Git install and update before build commands, preserving the running
     "requires Paseo >=0.9.0",
   );
   await expect(readFile(marker)).rejects.toMatchObject({ code: "ENOENT" });
-  expect(service.listPlugins()).toEqual([installed]);
+  expect(await service.listPlugins()).toEqual([installed]);
 });
