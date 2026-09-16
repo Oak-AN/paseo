@@ -120,7 +120,11 @@ it("rejects Git install and update before build commands, preserving the running
     [process.execPath, "-e", 'require("node:fs").writeFileSync(process.argv[1], "ran")', marker],
   ]);
   await commit();
-  await expect(service.updateSources("example")).rejects.toThrow("requires Paseo >=0.9.0");
+  const [preview] = await service.previewUpdates({ pluginId: "example" });
+  expect(preview).toMatchObject({ outcome: "update" });
+  await expect(service.applyUpdates([preview!.proposal!])).resolves.toMatchObject([
+    { id: "example", outcome: "error", error: expect.stringContaining("requires Paseo >=0.9.0") },
+  ]);
   expect(await service.listPlugins()).toEqual([installed]);
   expect(service.catalog()).toHaveLength(1);
   expect(await readdir(path.join(home, "plugins", ".staging"))).toEqual([]);

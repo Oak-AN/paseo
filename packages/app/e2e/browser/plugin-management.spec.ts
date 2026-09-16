@@ -8,6 +8,7 @@ import type { TestInfo } from "@playwright/test";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
 import { expect, test as base, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
+import { daemonWsRoutePattern } from "../support/helpers/daemon-port";
 import { getServerId } from "../support/helpers/server-id";
 import { connectNewWorkspaceDaemonClient } from "../support/helpers/new-workspace";
 import { waitForSettledPosition } from "../support/helpers/sheet-layout";
@@ -42,6 +43,30 @@ const test = base.extend<{}, { npmRegistry: Awaited<ReturnType<typeof startNpmRe
     { scope: "worker" },
   ],
 });
+
+async function advertisePluginCapabilities(
+  page: Page,
+  features: Record<string, boolean | undefined>,
+): Promise<void> {
+  await page.routeWebSocket(daemonWsRoutePattern(), (browser) => {
+    const server = browser.connectToServer();
+    browser.onMessage((message) => server.send(message));
+    server.onMessage((message) => {
+      if (typeof message !== "string") {
+        browser.send(message);
+        return;
+      }
+      const envelope = JSON.parse(message);
+      if (
+        envelope.message?.type === "status" &&
+        envelope.message.payload?.status === "server_info"
+      ) {
+        Object.assign(envelope.message.payload.features, features);
+      }
+      browser.send(JSON.stringify(envelope));
+    });
+  });
+}
 
 function observePluginCatalog(page: Page) {
   let responses = 0;
@@ -221,7 +246,7 @@ async function createGitPluginRepository(root: string): Promise<string> {
 
 async function createDirectoryPlugin(
   id: string,
-  description: string,
+  description: string | undefined,
   title: string,
 ): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "paseo-plugin-row-e2e-"));
@@ -442,6 +467,44 @@ test("installs a Git source after a failed source remains editable", async ({ pa
   }
 });
 
+for (const sourceSupport of [undefined, false]) {
+  test(`keeps installed plugins manageable without source capability (${sourceSupport})`, async ({
+    page,
+  }) => {
+    const directory = await createDirectoryPlugin(
+      "legacy-source-plugin",
+      undefined,
+      "Legacy plugin",
+    );
+    const client = await connectNewWorkspaceDaemonClient({ ownProjects: false });
+    const previous = await client.getDaemonConfig();
+    try {
+      await client.patchDaemonConfig({ pluginsEnabled: true });
+      await client.installPluginSource({ source: directory });
+      await advertisePluginCapabilities(page, {
+        pluginSourceInstallation: sourceSupport,
+        pluginGitManagement: true,
+      });
+      await gotoAppShell(page);
+      await openPluginSettings(page);
+      await expect(
+        page.getByText("Update this host to install plugins", { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "Plugin source", exact: true })).toHaveCount(
+        0,
+      );
+      await expect(page.getByText(directory, { exact: true })).toBeVisible();
+      await selectPluginAction(page, "legacy-source-plugin", "Reload");
+      await expect(page.getByText("Reloaded legacy-source-plugin", { exact: true })).toBeVisible();
+    } finally {
+      await client.removePlugin("legacy-source-plugin").catch(() => undefined);
+      await client.patchDaemonConfig({ pluginsEnabled: previous.config.pluginsEnabled ?? false });
+      await client.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const viewport of [
   { width: 1280, height: 900 },
   { width: 390, height: 844 },
@@ -453,6 +516,7 @@ for (const viewport of [
     const previous = await client.getDaemonConfig();
     try {
       await page.setViewportSize(viewport);
+      await advertisePluginCapabilities(page, { pluginGitManagement: false });
       await client.patchDaemonConfig({ pluginsEnabled: true });
       await gotoAppShell(page);
       await openNpmPluginSettings(page, viewport.width);

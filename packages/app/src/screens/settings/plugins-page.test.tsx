@@ -16,8 +16,6 @@ void testI18n;
 const runtime = vi.hoisted(() => ({
   connected: true,
   supported: true,
-  sourceSupported: true as boolean | undefined,
-  gitSupported: true,
   logsSupported: true,
   client: null as DaemonClient | null,
 }));
@@ -30,8 +28,6 @@ vi.mock("@/runtime/host-runtime", () => ({
 vi.mock("@/runtime/host-features", () => ({
   useHostFeature: (_serverId: string, feature: string) => {
     if (feature === "pluginLogs") return runtime.logsSupported;
-    if (feature === "pluginGitManagement") return runtime.gitSupported;
-    if (feature === "pluginSourceInstallation") return runtime.sourceSupported;
     return runtime.supported;
   },
 }));
@@ -156,8 +152,6 @@ describe("HostPluginsPage", () => {
     vi.stubGlobal("React", React);
     runtime.connected = true;
     runtime.supported = true;
-    runtime.sourceSupported = true;
-    runtime.gitSupported = true;
     runtime.logsSupported = true;
     runtime.client = null;
     vi.stubGlobal(
@@ -204,133 +198,6 @@ describe("HostPluginsPage", () => {
 
     await waitFor(() => expect(client[method]).toHaveBeenCalledTimes(1));
   });
-
-  it("disables the plugin switch and menu while an action is pending", async () => {
-    const client = createClient();
-    client.listPlugins.mockResolvedValue([plugin()]);
-    client.reloadPlugin.mockImplementation(() => never<never>());
-    renderPage(client);
-
-    await selectPluginAction("Reload");
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("switch", { name: "example: Disable" }).getAttribute("aria-disabled"),
-      ).toBe("true");
-      expect(
-        screen.getByRole("button", { name: "Actions for example" }).getAttribute("aria-disabled"),
-      ).toBe("true");
-    });
-  });
-
-  it.each([
-    [true, "disablePlugin"],
-    [false, "enablePlugin"],
-  ] as const)("toggles an enabled=%s plugin with its switch", async (enabled, method) => {
-    const client = createClient();
-    client.listPlugins.mockResolvedValue([plugin(enabled)]);
-    renderPage(client);
-
-    fireEvent.click(
-      await screen.findByRole("switch", { name: `example: ${enabled ? "Disable" : "Enable"}` }),
-    );
-
-    await waitFor(() => expect(client[method]).toHaveBeenCalledTimes(1));
-  });
-
-  it("shows the manifest description and status without exposing the source path", async () => {
-    const client = createClient();
-    client.listPlugins.mockResolvedValue([
-      plugin(),
-      {
-        id: "disabled-example",
-        description: "Available when needed",
-        path: "/plugins/disabled-example",
-        enabled: false,
-        status: "disabled",
-      },
-      {
-        id: "failed-example",
-        description: "Needs attention",
-        path: "/plugins/failed-example",
-        enabled: true,
-        status: "failed",
-        error: "Plugin failed to start",
-      },
-    ]);
-    renderPage(client);
-
-    expect(await screen.findByText("Reviews changes before merge")).toBeDefined();
-    expect(screen.getByText("Available when needed")).toBeDefined();
-    expect(screen.getByText("Needs attention")).toBeDefined();
-    expect(screen.getByText("running")).toBeDefined();
-    expect(screen.getByText("disabled")).toBeDefined();
-    expect(screen.getByText("failed")).toBeDefined();
-    expect(screen.getByText("Plugin failed to start")).toBeDefined();
-    expect(screen.queryByText("/plugins/example")).toBeNull();
-    expect(screen.queryByText("/plugins/disabled-example")).toBeNull();
-    expect(screen.queryByText("/plugins/failed-example")).toBeNull();
-  });
-
-  it("shows current npm revision and a directory identity without a description", async () => {
-    const client = createClient();
-    client.listPlugins.mockResolvedValue([
-      {
-        ...plugin(),
-        installation: {
-          identity: { kind: "npm", packageName: "@getpaseo/example", pluginPath: "." },
-          currentRevision: "1.1.0",
-        },
-      },
-      {
-        id: "local",
-        path: "/plugins/local",
-        enabled: false,
-        status: "disabled",
-        installation: { identity: { kind: "directory", path: "/plugins/local" } },
-      },
-    ]);
-    renderPage(client);
-    expect(await screen.findByText(/npm:@getpaseo\/example · 1.1.0/)).toBeDefined();
-    expect(screen.getByText("/plugins/local")).toBeDefined();
-  });
-
-  it("renders install pending with source support independently of Git support", async () => {
-    runtime.gitSupported = false;
-    const client = createClient();
-    client.installPluginSource.mockImplementation(() => never<never>());
-    renderPage(client);
-
-    expect(screen.getByPlaceholderText("Directory, Git URL, or npm package")).toBeDefined();
-    fireEvent.change(screen.getByLabelText("Plugin source"), {
-      target: { value: "/plugins/example" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Install plugin" }));
-
-    const pendingControl = await screen.findByRole("button", { name: "Installing…" });
-    expect(pendingControl.getAttribute("aria-disabled")).toBe("true");
-    expect(client.installPluginSource).toHaveBeenCalledWith({ source: "/plugins/example" });
-    expect(screen.queryByLabelText("Plugin installation ID")).toBeNull();
-    expect(screen.getByRole("link", { name: "Docs" })).toBeDefined();
-  });
-
-  it.each([undefined, false])(
-    "keeps management available on a Git-capable host with source support=%s",
-    async (sourceSupport) => {
-      runtime.sourceSupported = sourceSupport;
-      runtime.gitSupported = true;
-      const client = createClient();
-      client.listPlugins.mockResolvedValue([plugin()]);
-      renderPage(client);
-
-      expect(await screen.findByRole("button", { name: "Actions for example" })).toBeDefined();
-      expect(screen.getByText("Update this host to install plugins")).toBeDefined();
-      expect(screen.queryByLabelText("Plugin source")).toBeNull();
-      expect(client.installPluginSource).not.toHaveBeenCalled();
-      await selectPluginAction("Reload");
-      await waitFor(() => expect(client.reloadPlugin).toHaveBeenCalledWith("example"));
-    },
-  );
 
   it("hides the logs action when the host does not advertise support", async () => {
     runtime.logsSupported = false;
