@@ -105,7 +105,7 @@ API behind `Platform.OS` with a native fallback. See
 
 ## Install and try it
 
-Plugins are trusted, unsandboxed code: server code and Git preparation commands run with the daemon
+Plugins are trusted, unsandboxed code: server code and preparation commands run with the daemon
 user's access on the daemon machine, and client code runs inside the Paseo app. Installing a plugin
 means you trust that codebase, its dependencies, and its future updates.
 
@@ -128,7 +128,7 @@ Or install the directory from the app:
 2. Paste `/absolute/path/to/workspace-plugin` into **Plugin source**.
 3. Select **Install plugin**. The app uses the plugin ID from `paseo-plugin.json`.
 
-The source field also accepts Git repositories and plugin subdirectories. See
+The source field also accepts Git repositories, npm packages, and plugin subdirectories. See
 [Plugin sources](/docs/plugins/v0.8/reference#plugin-sources) for the accepted syntax and resolution
 rules. If the form asks you to update the host, update that host before installing; the existing
 management actions remain available.
@@ -233,6 +233,20 @@ workspace overview**. The panel opens as a workspace tab.
 
 ## Install a published plugin
 
+Install a trusted npm plugin using npm on the daemon host:
+
+```bash
+paseo plugin install npm:@acme/paseo-review@1.2.0
+```
+
+Or paste the same identifier into **Settings → Plugins → Plugin source** and select **Install
+plugin**. The installed row uses the manifest ID and provides the same enable switch, Logs, Reload,
+and Remove actions as a directory plugin. npm is needed for acquisition; subsequent loading and
+reload use the installed files.
+
+See [plugin sources](/docs/plugins/v0.8/reference#plugin-sources) for exact identifiers, registry
+configuration, dependencies, and what authors must publish.
+
 Plugins published in a Git repository install by shorthand or URL:
 
 ```bash
@@ -242,8 +256,8 @@ paseo plugin add owner/monorepo:plugins/workspace
 paseo plugin add owner/repository --ref main
 ```
 
-Append `:relative/path` when the plugin lives below the repository root. Without `--ref`, the
-default branch is tracked; a branch tracks updates, while a tag or commit stays pinned.
+Append `:relative/path` when the plugin lives below the repository root. `--ref` selects the initial
+Git content once; omitting it installs the default HEAD. See the [source reference](/docs/plugins/v0.8/reference#plugin-sources) for exact syntax.
 
 ```bash
 paseo plugin ls
@@ -251,7 +265,11 @@ paseo plugin update workspace-plugin
 paseo plugin update --all
 ```
 
-`ls` reports runtime state, source details, and the installed commit without contacting the remote.
+`ls` reports source identity and the current installed revision without contacting the remote.
+`update` shows a proposed npm or Git revision and asks for approval. npm offers a newer latest
+release; Git offers the current default HEAD, regardless of the initial install selector.
+Use `--check` to preview only or `--yes` to approve without a prompt.
+See the [CLI reference](/docs/plugins/v0.8/reference#cli-reference) for explicit targets and bulk updates.
 
 Paseo compiles TypeScript itself, so most plugins need no build step. A repository that must
 install a dependency Paseo does not provide, or generate files, declares

@@ -4,7 +4,7 @@ Local plugins contribute daemon RPCs, native app surfaces, workspace panels, Com
 client slash commands, timeline items, header buttons, composer pills, app themes, composer attachment sources, and settings screens.
 Paseo executes `index.server.ts` in a subprocess and `index.client.tsx` in every connected app.
 
-> **Trust every plugin you add.** `paseo plugin add` and `paseo plugin install` mean “I trust this codebase.” Plugins are unsandboxed: server code and Git preparation commands run with the daemon user's access on the daemon host, and client contributions run inside Paseo. The repository's dependencies and future updates are part of that trust decision. With `--host`, preparation runs on that remote daemon host.
+> **Trust every plugin you add.** `paseo plugin add` and `paseo plugin install` mean “I trust this codebase.” Plugins are unsandboxed: server code and preparation commands run with the daemon user's access on the daemon host, and client contributions run inside Paseo. The repository's dependencies and future updates are part of that trust decision. With `--host`, preparation runs on that remote daemon host.
 
 ## Install a directory source
 
@@ -103,9 +103,35 @@ paseo plugin update --all
 
 Append `:relative/path` to the source when the plugin lives below the repository root.
 
-Omitting `--ref` tracks the remote's default branch. A branch passed with `--ref` also tracks;
-tags and commits stay pinned. `ls` reports the installed commit without contacting the remote.
+`--ref` chooses the initial branch, tag, or commit once. Ordinary updates resolve the remote's
+current default HEAD and ask for approval. `ls` reports the installed commit without contacting the remote.
 Removing a Git source deletes Paseo's managed checkout.
+
+## Managed source ownership
+
+The [public source reference](../public-docs/plugins/v0.8/reference.md#plugin-sources) owns identifier
+syntax, npm prerequisites, and publishing instructions. Both clients send the source unchanged
+through `installPluginSource`; only the daemon resolves host paths and acquires sources.
+
+`ManagedPluginSources` owns acquisition and offline source description. Config stores the active
+directory; sources.json stores managed kind and the Git acquisition remote. The remote is needed
+because authenticated clones may have a rewritten placeholder origin. Fixed owned directory layout
+provides the selected subdirectory, npm package name and cleanup root. Git HEAD and the installed
+npm package.json checked against package-lock.json provide the current revision. Keep the complete
+npm dependency tree and lockfile after staging activation. No install selector governs updates.
+
+The loader sees only the configured directory and never invokes npm. npm lifecycle scripts are
+disabled during acquisition; manifest preparation owns required commands before validation.
+
+List responses retain the closed `source: directory | git` enum. The optional `installation`
+projection carries identity and current revision. Old npm metadata remains accepted but is no longer
+emitted. Installation uses `features.pluginSourceInstallation`; reviewed preview/apply uses
+`features.pluginSourceUpdates`, gated by the SDK and CLI entry. The old immediate-update request
+returns update-client guidance. Basic management remains independently available.
+
+Preview returns exact targets and expected installed identity/root/revision. Apply validates those
+values, acquires the displayed artifact or commit, then rechecks state before activation. No review
+session is stored in the daemon. PluginService owns activation/recovery and independent bulk results.
 
 ### Declare Git preparation
 

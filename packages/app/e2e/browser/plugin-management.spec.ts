@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { TestInfo } from "@playwright/test";
 import { buildOpenProjectRoute } from "@/utils/host-routes";
-import { expect, test, type Page } from "../support/fixtures";
+import { expect, test as base, type Page } from "../support/fixtures";
 import { gotoAppShell, openSettings } from "../support/helpers/app";
 import { getServerId } from "../support/helpers/server-id";
 import { connectNewWorkspaceDaemonClient } from "../support/helpers/new-workspace";
@@ -17,6 +17,31 @@ import {
   openHostSection,
   openSettingsHost,
 } from "../support/helpers/settings";
+
+import {
+  startNpmRegistry,
+  npmPluginPackages,
+} from "../../../../scripts/test-support/npm-registry.mjs";
+
+const test = base.extend<{}, { npmRegistry: Awaited<ReturnType<typeof startNpmRegistry>> }>({
+  npmRegistry: [
+    async ({ browserName: _browserName }, provide) => {
+      const registry = await startNpmRegistry(npmPluginPackages());
+      try {
+        await provide(registry);
+      } finally {
+        await registry.close();
+      }
+    },
+    { scope: "worker" },
+  ],
+  e2eDaemonEnvironment: [
+    async ({ npmRegistry }, provide) => {
+      await provide(npmRegistry.env);
+    },
+    { scope: "worker" },
+  ],
+});
 
 function observePluginCatalog(page: Page) {
   let responses = 0;
@@ -416,3 +441,68 @@ test("installs a Git source after a failed source remains editable", async ({ pa
     await rm(disabledDirectory, { recursive: true, force: true });
   }
 });
+
+for (const viewport of [
+  { width: 1280, height: 900 },
+  { width: 390, height: 844 },
+]) {
+  test(`installs an npm source and manages its row at ${viewport.width}px`, async ({
+    page,
+  }, testInfo) => {
+    const client = await connectNewWorkspaceDaemonClient({ ownProjects: false });
+    const previous = await client.getDaemonConfig();
+    try {
+      await page.setViewportSize(viewport);
+      await client.patchDaemonConfig({ pluginsEnabled: true });
+      await gotoAppShell(page);
+      await openNpmPluginSettings(page, viewport.width);
+      await installPlugin(page, "npm:missing-plugin");
+      await expect(page.getByTestId("plugin-management-feedback")).toContainText("404");
+      await expect(page.getByLabel("Plugin source")).toHaveValue("npm:missing-plugin");
+      await installPlugin(page, "npm:@paseo-fixture/review@^2.0.0");
+      await expect(page.getByText("Installed npm-review", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("npm-review running")).toBeVisible();
+      await expectSourceHierarchy(
+        page,
+        "Installed from the npm fixture registry",
+        "npm:@paseo-fixture/review · 2.0.0",
+      );
+      await expect(
+        page.getByText("Installed from the npm fixture registry", { exact: true }),
+      ).toBeVisible();
+      await page.screenshot({
+        path: testInfo.outputPath(`npm-plugin-${viewport.width}.png`),
+        animations: "disabled",
+      });
+      await selectPluginAction(page, "npm-review", "Reload");
+      await expect(page.getByText("Reloaded npm-review", { exact: true })).toBeVisible();
+      page.once("dialog", (dialog) => dialog.accept());
+      await selectPluginAction(page, "npm-review", "Remove");
+      await expect(page.getByText("Removed npm-review", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("npm-review running")).toHaveCount(0);
+    } finally {
+      await client.removePlugin("npm-review").catch(() => undefined);
+      await client.patchDaemonConfig({ pluginsEnabled: previous.config.pluginsEnabled ?? false });
+      await client.close();
+    }
+  });
+}
+
+async function openNpmPluginSettings(page: Page, width: number) {
+  if (width < 600) await openCompactPluginSettings(page);
+  else await openPluginSettings(page);
+}
+
+async function expectSourceHierarchy(page: Page, description: string, source: string) {
+  const descriptionText = page.getByText(description, { exact: false });
+  const sourceText = page.getByText(source, { exact: false });
+  const descriptionSize = await descriptionText.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).fontSize),
+  );
+  const sourceSize = await sourceText.evaluate((element) =>
+    Number.parseFloat(getComputedStyle(element).fontSize),
+  );
+  expect(sourceSize).toBeLessThan(descriptionSize);
+  await expect(sourceText).toHaveCSS("color", "rgb(161, 161, 170)");
+  await expect(descriptionText).toHaveCSS("color", "rgb(113, 113, 122)");
+}

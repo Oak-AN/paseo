@@ -27,7 +27,8 @@ import { settingsStyles } from "@/styles/settings";
 export { SettingsGroup } from "./headings/settings-group";
 export { SettingsSection } from "./headings/settings-section";
 
-interface AppSettingsRowProps extends SettingsRowProps {
+interface AppSettingsRowProps extends Omit<SettingsRowProps, "hint"> {
+  hint?: ReactNode;
   labelAccessory?: ReactNode;
 }
 
@@ -67,7 +68,7 @@ export function SettingsRow({
         ) : (
           <Text style={settingsStyles.rowTitle}>{label}</Text>
         )}
-        {hint ? <Text style={settingsStyles.rowHint}>{hint}</Text> : null}
+        {typeof hint === "string" ? <Text style={settingsStyles.rowHint}>{hint}</Text> : hint}
         {error ? (
           <Text accessibilityRole="alert" style={settingsStyles.rowError}>
             {error}

@@ -1,3 +1,4 @@
+import { formatPluginInstallation } from "@getpaseo/protocol/plugin-source-reference";
 import { PluginSettingsMenuItems } from "@/plugins/settings";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -144,6 +145,20 @@ function PluginRow({
     () => <StatusBadge label={statusLabel} variant={badgeVariant} />,
     [badgeVariant, statusLabel],
   );
+  const hint = useMemo(
+    () =>
+      plugin.description || plugin.installation ? (
+        <View>
+          {plugin.description ? (
+            <Text style={styles.pluginDescription}>{plugin.description}</Text>
+          ) : null}
+          {plugin.installation ? (
+            <Text style={styles.pluginSource}>{formatPluginInstallation(plugin.installation)}</Text>
+          ) : null}
+        </View>
+      ) : undefined,
+    [plugin.description, plugin.installation],
+  );
   const toggleLabel = `${plugin.id}: ${t(
     plugin.enabled ? "settings.plugins.actions.disable" : "settings.plugins.actions.enable",
   )}`;
@@ -151,7 +166,7 @@ function PluginRow({
     <SettingsRow
       label={plugin.id}
       labelAccessory={statusBadge}
-      hint={plugin.description}
+      hint={hint}
       error={clientError ?? plugin.error}
       testID={`plugin-row-${plugin.id}`}
     >
@@ -253,8 +268,8 @@ export function HostPluginsPage({ serverId }: { serverId: string }) {
   const client = useHostRuntimeClient(serverId);
   const connected = useHostRuntimeIsConnected(serverId);
   const supported = useHostFeature(serverId, "pluginManagement");
-  // COMPAT(pluginGitManagement): added in v0.7.0, remove gate after 2027-08-26.
-  const sourceInstallSupported = useHostFeature(serverId, "pluginGitManagement");
+  // COMPAT(pluginSourceInstallation): added in v0.8.0; remove gate after 2027-03-16 once daemon floor supports source identifiers.
+  const sourceInstallSupported = useHostFeature(serverId, "pluginSourceInstallation");
   // COMPAT(pluginLogs): added in v0.4.0, remove gate after 2027-08-16.
   const logsSupported = useHostFeature(serverId, "pluginLogs");
   const { config, patchConfig } = useDaemonConfig(serverId);
@@ -517,6 +532,16 @@ export function HostPluginsPage({ serverId }: { serverId: string }) {
 }
 
 const styles = StyleSheet.create((theme) => ({
+  pluginDescription: {
+    color: theme.colors.foregroundMuted,
+    fontSize: theme.fontSize.base,
+    marginTop: theme.spacing[1],
+  },
+  pluginSource: {
+    color: theme.colors.foregroundExtraMuted,
+    fontSize: theme.fontSize.sm,
+    marginTop: theme.spacing[1],
+  },
   install: { padding: theme.spacing[4], gap: theme.spacing[3] },
   pluginControls: { flexDirection: "row", alignItems: "center", gap: theme.spacing[2] },
   menuButton: { padding: theme.spacing[1], borderRadius: theme.borderRadius.sm },

@@ -16,7 +16,8 @@ void testI18n;
 const runtime = vi.hoisted(() => ({
   connected: true,
   supported: true,
-  sourceSupported: true,
+  sourceSupported: true as boolean | undefined,
+  gitSupported: true,
   logsSupported: true,
   client: null as DaemonClient | null,
 }));
@@ -29,7 +30,8 @@ vi.mock("@/runtime/host-runtime", () => ({
 vi.mock("@/runtime/host-features", () => ({
   useHostFeature: (_serverId: string, feature: string) => {
     if (feature === "pluginLogs") return runtime.logsSupported;
-    if (feature === "pluginGitManagement") return runtime.sourceSupported;
+    if (feature === "pluginGitManagement") return runtime.gitSupported;
+    if (feature === "pluginSourceInstallation") return runtime.sourceSupported;
     return runtime.supported;
   },
 }));
@@ -155,6 +157,7 @@ describe("HostPluginsPage", () => {
     runtime.connected = true;
     runtime.supported = true;
     runtime.sourceSupported = true;
+    runtime.gitSupported = true;
     runtime.logsSupported = true;
     runtime.client = null;
     vi.stubGlobal(
@@ -269,7 +272,31 @@ describe("HostPluginsPage", () => {
     expect(screen.queryByText("/plugins/failed-example")).toBeNull();
   });
 
-  it("renders install pending through the real form and mutation", async () => {
+  it("shows current npm revision and a directory identity without a description", async () => {
+    const client = createClient();
+    client.listPlugins.mockResolvedValue([
+      {
+        ...plugin(),
+        installation: {
+          identity: { kind: "npm", packageName: "@getpaseo/example", pluginPath: "." },
+          currentRevision: "1.1.0",
+        },
+      },
+      {
+        id: "local",
+        path: "/plugins/local",
+        enabled: false,
+        status: "disabled",
+        installation: { identity: { kind: "directory", path: "/plugins/local" } },
+      },
+    ]);
+    renderPage(client);
+    expect(await screen.findByText(/npm:@getpaseo\/example · 1.1.0/)).toBeDefined();
+    expect(screen.getByText("/plugins/local")).toBeDefined();
+  });
+
+  it("renders install pending with source support independently of Git support", async () => {
+    runtime.gitSupported = false;
     const client = createClient();
     client.installPluginSource.mockImplementation(() => never<never>());
     renderPage(client);
@@ -287,16 +314,23 @@ describe("HostPluginsPage", () => {
     expect(screen.getByRole("link", { name: "Docs" })).toBeDefined();
   });
 
-  it("keeps management available while source installation requires a host update", async () => {
-    runtime.sourceSupported = false;
-    const client = createClient();
-    client.listPlugins.mockResolvedValue([plugin()]);
-    renderPage(client);
+  it.each([undefined, false])(
+    "keeps management available on a Git-capable host with source support=%s",
+    async (sourceSupport) => {
+      runtime.sourceSupported = sourceSupport;
+      runtime.gitSupported = true;
+      const client = createClient();
+      client.listPlugins.mockResolvedValue([plugin()]);
+      renderPage(client);
 
-    expect(await screen.findByRole("button", { name: "Actions for example" })).toBeDefined();
-    expect(screen.getByText("Update this host to install plugins")).toBeDefined();
-    expect(screen.queryByLabelText("Plugin source")).toBeNull();
-  });
+      expect(await screen.findByRole("button", { name: "Actions for example" })).toBeDefined();
+      expect(screen.getByText("Update this host to install plugins")).toBeDefined();
+      expect(screen.queryByLabelText("Plugin source")).toBeNull();
+      expect(client.installPluginSource).not.toHaveBeenCalled();
+      await selectPluginAction("Reload");
+      await waitFor(() => expect(client.reloadPlugin).toHaveBeenCalledWith("example"));
+    },
+  );
 
   it("hides the logs action when the host does not advertise support", async () => {
     runtime.logsSupported = false;
