@@ -268,6 +268,17 @@ export default function contribute(plugin) {
   return directory;
 }
 
+async function installFailedPlugin(
+  page: Page,
+  client: Awaited<ReturnType<typeof connectNewWorkspaceDaemonClient>>,
+  directory: string,
+): Promise<void> {
+  await client.installPluginSource({ source: directory });
+  await writeFile(path.join(directory, "index.client.tsx"), "export default broken !!!");
+  await client.reloadPlugin("failed-preview-plugin");
+  await expect(page.getByLabel("failed-preview-plugin failed")).toBeVisible();
+}
+
 test("installs, reloads, recovers, disables, and removes a trusted local plugin", async ({
   page,
 }, testInfo) => {
@@ -306,9 +317,7 @@ test("installs, reloads, recovers, disables, and removes a trusted local plugin"
     await expect(page.getByText("Plugins enabled", { exact: true })).toBeVisible();
     await client.installPluginSource({ source: disabledDirectory });
     await client.disablePlugin("disabled-preview-plugin-with-a-long-name");
-    await client.installPluginSource({ source: failedDirectory });
-    await writeFile(path.join(failedDirectory, "index.client.tsx"), "export default broken !!!");
-    await client.reloadPlugin("failed-preview-plugin").catch(() => undefined);
+    await installFailedPlugin(page, client, failedDirectory);
     await page.getByLabel("Plugin source").fill(directory);
     await page.getByRole("button", { name: "Install plugin" }).click();
     await expect(page.getByText("Installed e2e-plugin", { exact: true })).toBeVisible();
